@@ -18,7 +18,7 @@ public class Main extends JPanel {
     private boolean drawing;
 
     public Main() {
-        this.setPreferredSize(new Dimension(1000, 1000));
+        this.setPreferredSize(new Dimension(900, 900));
         this.addMouseListener(mouseHandler);
         this.addMouseMotionListener(mouseHandler);
         this.nono = new Nonogram(10);
@@ -42,8 +42,8 @@ public class Main extends JPanel {
         Font myFont = new Font("Courier New", Font.BOLD, 20);
         g.setFont (myFont);
         var size = nono.columns.length;
-        int low = 250;
-        int high = 950;
+        int low = 200;
+        int high = 850;
         int step = (high - low) / size;
         drawMatrix(g, size, low, step, Color.lightGray, nono.solution);
         drawMatrix(g, size, low, step, Color.blue, nono.guess);

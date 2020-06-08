@@ -83,8 +83,7 @@ public class Nonogram {
             }
             index += entry + 1;
         }
-
-        var segments = new ArrayList<Segment>();
+        var filledSegments = new ArrayList<FilledSegment>();
         for (int i = 0; i < size; i++) {
             int endOfSegment = i;
             while(endOfSegment != size && vector[endOfSegment] == STATE.FILLED) {
@@ -92,15 +91,54 @@ public class Nonogram {
             }
             int len = endOfSegment - i;
             if (len > 0) {
-                segments.add(new Segment(i, endOfSegment));
+                filledSegments.add(new FilledSegment(i, endOfSegment));
             }
             i = endOfSegment;
         }
-        // TODO: enter segments not in zipped fashion
-        if (segments.size() == info.size()) {
-            // can start from left
-            for (int i = 0; i < info.size(); i++) {
-                fillSegment(segments.get(i), info.get(i), vector);
+        var borderSegments = new ArrayList<BorderSegment>();
+        for (int i = 0; i < size; i++) {
+            int endOfSegment = i;
+            while(endOfSegment != size && vector[endOfSegment] != STATE.EMPTY) {
+                endOfSegment++;
+            }
+            int len = endOfSegment - i;
+            if (len > 0) {
+                borderSegments.add(new BorderSegment(i, endOfSegment));
+            }
+            i = endOfSegment;
+        }
+
+        FilledSegment.matchInfos(vector, info, filledSegments);
+        BorderSegment.matchInfos(vector, info, borderSegments);
+
+        int highestContainedPrior = -1;
+        int lowestContainedPost = -1;
+        for (int i = 0; i < borderSegments.size(); i++) {
+            if (borderSegments.get(i).containedInfoIndices.isEmpty()) continue;
+            if (i + 1 == borderSegments.size()) {
+                lowestContainedPost = info.size();
+            } else {
+                lowestContainedPost = lowestNext(borderSegments, i + 1);
+            }
+            if (i != 0) {
+                highestContainedPrior = highestBefore(borderSegments, i - 1);
+            }
+            if (borderSegments.get(i).containedInfoIndices.first() > highestContainedPrior &&
+                    borderSegments.get(i).containedInfoIndices.last() < lowestContainedPost) {
+                index = borderSegments.get(i).start;
+                sum = borderSegments.get(i).containedInfoIndices.stream()
+                        .map(info::get)
+                        .reduce(Integer::sum).get()
+                        + borderSegments.get(i).containedInfoIndices.size() - 1;
+                stride = borderSegments.get(i).end - borderSegments.get(i).start - sum;
+                for (var infoIndex : borderSegments.get(i).containedInfoIndices) {
+                    var entry = info.get(infoIndex);
+                    int delta = entry - stride;
+                    if (delta > 0) {
+                        setEntries(vector, entry, index, stride);
+                    }
+                    index += entry + 1;
+                }
             }
         }
 
@@ -127,12 +165,99 @@ public class Nonogram {
                 vector[i] = vector[i] == STATE.UNKNOWN ? STATE.EMPTY : vector[i];
             }
         }
+        cheating(vector, info);
         // commit and post-process
         saveChanges(vector);
         if (++pos == size) {
             inColumnPass = !inColumnPass;
             pos = 0;
         }
+    }
+
+    private void cheating(STATE[] vector, List<Integer> info) {
+        var unknowns = unknowns(vector);
+        for (var i : unknowns) {
+            if (possible(vector, i, STATE.EMPTY, info)) {
+                if (!possible(vector, i, STATE.FILLED, info)) {
+                    vector[i] = STATE.EMPTY;
+                }
+            } else {
+                vector[i] = STATE.FILLED;
+            }
+        }
+    }
+
+    private ThomasList<Integer> unknowns(STATE[] vector) {
+        var unknowns = new ThomasList<Integer>();
+        for (int i = 0; i < vector.length; i++) {
+            if (vector[i] == STATE.UNKNOWN) {
+                unknowns.add(i);
+            }
+        }
+        return unknowns;
+    }
+
+    private boolean possible(STATE[] vector, Integer checked, STATE state, List<Integer> info) {
+        var copy = vector.clone();
+        copy[checked] = state;
+        var unknowns = unknowns(copy);
+        for (var i : unknowns) {
+            copy[i] = STATE.EMPTY;
+        }
+        while(true) {
+            var changeIndex = 0;
+            if (test(copy, info)) {
+                return true;
+            }
+            while(copy[unknowns.get(changeIndex)] == STATE.FILLED) {
+                copy[unknowns.get(changeIndex)] = STATE.EMPTY;
+                changeIndex++;
+                if (changeIndex == unknowns.size()) {
+                    return false;
+                }
+            }
+            copy[unknowns.get(changeIndex)] = STATE.FILLED;
+        }
+    }
+
+    private boolean test(STATE[] copy, List<Integer> info) {
+        var segments = new ArrayList<Segment>();
+        for (int i = 0; i < size; i++) {
+            int endOfSegment = i;
+            while(endOfSegment != size && copy[endOfSegment] == STATE.FILLED) {
+                endOfSegment++;
+            }
+            int len = endOfSegment - i;
+            if (len > 0) {
+                segments.add(new FilledSegment(i, endOfSegment));
+            }
+            i = endOfSegment;
+        }
+        if (segments.size() != info.size()) {
+            return false;
+        }
+        for (int i = 0; i < info.size(); i++) {
+            if (info.get(i) != segments.get(i).end - segments.get(i).start) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private int lowestNext(List<BorderSegment> borderSegments, int i) {
+        while(i < borderSegments.size() && borderSegments.get(i).containedInfoIndices.isEmpty()) {
+            i++;
+        }
+        if (i == borderSegments.size()) return Integer.MAX_VALUE;
+        return borderSegments.get(i).containedInfoIndices.first();
+    }
+
+    private int highestBefore(List<BorderSegment> borderSegments, int i) {
+        while(i >= 0 && borderSegments.get(i).containedInfoIndices.isEmpty()) {
+            i--;
+        }
+        if (i < 0) return -1;
+        return borderSegments.get(i).containedInfoIndices.last();
     }
 
     private void fillSegment(Segment segment, Integer len, STATE[] vector) {
